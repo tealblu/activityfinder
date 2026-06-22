@@ -1,0 +1,21 @@
+[build-system]
+requires = ["setuptools>=64", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "activityfinder"
+version = "0.1.0"
+description = "Index local activities and recommend them based on search criteria"
+requires-python = ">=3.10"
+dependencies = [
+    "click>=8",
+]
+
+[project.scripts]
+activityfinder = "activityfinder.cli:main"
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]

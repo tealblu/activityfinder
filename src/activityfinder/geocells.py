@@ -205,3 +205,16 @@ def generate_geogrid(
         longitude=center_lng,
         cells=cells,
     )
+
+
+def find_cell(
+    cells: list[Geocell],
+    latitude: float,
+    longitude: float,
+) -> Geocell | None:
+    if not cells:
+        return None
+    precision = cells[0].precision
+    target = _geohash_encode(latitude, longitude, precision)
+    lookup = {c.geohash: c for c in cells}
+    return lookup.get(target)

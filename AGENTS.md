@@ -16,18 +16,32 @@ Index local things to do ("activities") and recommend them based on search crite
 
 ```
 src/activityfinder/
-├── models.py        # Activity, SearchCriteria dataclasses
+├── __init__.py      # Empty package marker
+├── __main__.py      # Enables `python -m activityfinder`
+├── cli.py           # Click CLI (4 commands: add, search, list, geogrid)
+├── geocells.py      # Geohash grid generation via Nominatim (httpx)
 ├── indexer.py       # In-memory store: index, remove, all, clear
-├── recommender.py   # Search/filter against an Indexer instance
-├── cli.py           # Click CLI (3 commands: add, search, list)
-├── geocells.py      # Geohash grid ingestion pipeline
-└── __main__.py      # Enables `python -m activityfinder`
+├── models.py        # Activity, SearchCriteria dataclasses
+└── recommender.py   # Search/filter against an Indexer instance
 ```
 
 - **CLI → Recommender → Indexer** — decoupled so the same recommender/indexer can be reused by an API layer later.
 - `models.py` has zero dependencies beyond stdlib.
 - `recommender.py` depends only on `indexer.py` and `models.py` — no Click dependency.
+- `geocells.py` depends on `httpx` (Nominatim geocoding API) but not on Click or other app modules.
 - Data is **in-memory per process** (no persistence yet). Each `activityfinder` CLI invocation starts fresh.
+
+## Geocells (src/activityfinder/geocells.py)
+
+Generates a geohash grid for a location via the Nominatim geocoding API (httpx).
+
+- **`Geocell`** dataclass: `geohash`, `latitude`, `longitude`, `precision`
+- **`Geogrid`** dataclass: `location`, `latitude`, `longitude`, `cells: list[Geocell]`
+- **`GeocellsError`** / **`GeocodeError`** — custom exceptions
+- **`generate_geogrid(location, precision, radius_km)`** — main entry point; resolves location via Nominatim, auto-picks precision and radius if omitted, generates deduplicated geohash cells
+- **`geocode_location(location) -> (lat, lng)`** — simple lat/lng lookup
+- Contains internal geohash encode/decode/step helpers (pure Python, no external geohash library)
+- Default max grid cells: 10,000
 
 ## Conventions
 
@@ -67,11 +81,12 @@ Filter-based search; applies each non-empty criterion as a narrowing filter:
 
 ## CLI (src/activityfinder/cli.py)
 
-Click group `main` with three commands:
+Click group `main` with four commands:
 
 - `add` — index an activity (requires `--title`, `--description`, `--location`; optional `--category`, `--cost`, `--tags`, `--source`, `--url`, `--start-time`)
 - `search` — search by `--query`, `--category` (repeatable), `--max-cost`, `--location`, `--tag` (repeatable)
 - `list` — list all indexed activities
+- `geogrid` — generate a geohash grid for a LOCATION argument (optional `--precision`, `--radius`)
 
 The `list` command is registered as `@main.command(name="list")` with function name `list_activities` to avoid shadowing the built-in.
 

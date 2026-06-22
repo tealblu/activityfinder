@@ -20,6 +20,7 @@ src/activityfinder/
 ├── indexer.py       # In-memory store: index, remove, all, clear
 ├── recommender.py   # Search/filter against an Indexer instance
 ├── cli.py           # Click CLI (3 commands: add, search, list)
+├── geocells.py      # Geohash grid ingestion pipeline
 └── __main__.py      # Enables `python -m activityfinder`
 ```
 

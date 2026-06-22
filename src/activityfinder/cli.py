@@ -2,6 +2,7 @@ import click
 
 from datetime import datetime
 
+from activityfinder.geocells import generate_geogrid
 from activityfinder.indexer import Indexer
 from activityfinder.models import Activity, ActivityCategory, SearchCriteria
 from activityfinder.recommender import Recommender
@@ -113,3 +114,20 @@ def list_activities() -> None:
         cost_str = f"${a.cost:.2f}" if a.cost else "Free"
         click.echo(f"{a.title} ({a.category.value}) — {cost_str}")
     click.echo(f"\nTotal: {len(activities)}")
+
+
+@main.command()
+@click.argument("location")
+@click.option("--precision", "-p", type=int, default=None, help="Geohash precision (auto if omitted)")
+@click.option("--radius", "-r", type=float, default=None, help="Radius in km (auto if omitted)")
+def geogrid(location: str, precision: int | None, radius: float | None) -> None:
+    """Generate a geohash grid for LOCATION."""
+    grid = generate_geogrid(location, precision=precision, radius_km=radius)
+    click.echo(f"Location: {grid.location}")
+    click.echo(f"Center:   {grid.latitude:.4f}, {grid.longitude:.4f}")
+    if grid.cells:
+        p = grid.cells[0].precision
+        click.echo(f"Precision: {p}{' (auto)' if precision is None else ''}")
+    click.echo(f"Cells:    {len(grid.cells)}")
+    for c in grid.cells:
+        click.echo(f"  {c.geohash}  ({c.latitude:.4f}, {c.longitude:.4f})")

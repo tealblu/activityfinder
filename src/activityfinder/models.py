@@ -28,6 +28,7 @@ class Activity:
     tags: list[str] = field(default_factory=list)
     source: str = ""
     url: str = ""
+    expires_at: Optional[datetime] = None
 
 
 @dataclass

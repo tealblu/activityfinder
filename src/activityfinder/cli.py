@@ -1,84 +1,79 @@
-import click
+import typer
 
 from datetime import datetime
-
+from typing import Optional
+from activityfinder.db import Database
 from activityfinder.geocells import generate_geogrid
 from activityfinder.indexer import Indexer
 from activityfinder.models import Activity, ActivityCategory, SearchCriteria
 from activityfinder.recommender import Recommender
 
 
-_indexer = Indexer()
-_recommender = Recommender(_indexer)
+_indexer: Indexer | None = None
+_recommender: Recommender | None = None
 
 
-@click.group()
-def main() -> None:
+def _get_indexer() -> Indexer:
+    assert _indexer is not None
+    return _indexer
+
+
+def _get_recommender() -> Recommender:
+    assert _recommender is not None
+    return _recommender
+
+
+main = typer.Typer()
+main.name = "activityfinder"
+
+
+@main.callback()
+def _main(
+    db: str = typer.Option("activityfinder.db", "--db", envvar="ACTIVITYFINDER_DB", show_default=True, help="SQLite database path"),
+) -> None:
     """Activity Finder — index and discover local activities."""
+    global _indexer, _recommender
+    dbase = Database(db)
+    _indexer = Indexer(db=dbase)
+    _recommender = Recommender(_indexer)
 
 
 @main.command()
-@click.option("--title", "-t", required=True, help="Activity title")
-@click.option("--description", "-d", required=True, help="Activity description")
-@click.option(
-    "--category",
-    "-c",
-    type=click.Choice([c.value for c in ActivityCategory]),
-    default=ActivityCategory.OTHER.value,
-    show_default=True,
-    help="Activity category",
-)
-@click.option("--location", "-l", required=True, help="Where it takes place")
-@click.option("--cost", "-m", type=float, default=0.0, help="Cost in dollars")
-@click.option("--tags", "-g", multiple=True, help="Searchable tags")
-@click.option("--source", default="", help="Source of the listing")
-@click.option("--url", default="", help="URL for more info")
-@click.option("--start-time", default="", help="ISO format start time (default: now)")
 def add(
-    title: str,
-    description: str,
-    category: str,
-    location: str,
-    cost: float,
-    tags: tuple[str, ...],
-    source: str,
-    url: str,
-    start_time: str,
+    title: str = typer.Option(..., "--title", "-t", help="Activity title"),
+    description: str = typer.Option(..., "--description", "-d", help="Activity description"),
+    category: ActivityCategory = typer.Option(ActivityCategory.OTHER, "--category", "-c", help="Activity category"),
+    location: str = typer.Option(..., "--location", "-l", help="Where it takes place"),
+    cost: float = typer.Option(0.0, "--cost", "-m", help="Cost in dollars"),
+    tags: Optional[list[str]] = typer.Option(None, "--tags", "-g", help="Searchable tags"),
+    source: str = typer.Option("", "--source", help="Source of the listing"),
+    url: str = typer.Option("", "--url", help="URL for more info"),
+    start_time: str = typer.Option("", "--start-time", help="ISO format start time (default: now)"),
 ) -> None:
     """Index a new activity."""
     st = datetime.fromisoformat(start_time) if start_time else datetime.now()
     activity = Activity(
         title=title,
         description=description,
-        category=ActivityCategory(category),
+        category=category,
         location=location,
         cost=cost,
-        tags=list(tags),
+        tags=tags or [],
         source=source,
         url=url,
         start_time=st,
     )
-    _indexer.index(activity)
-    click.echo(f"Indexed: {title}")
+    _get_indexer().index(activity)
+    typer.echo(f"Indexed: {title}")
 
 
 @main.command()
-@click.option("--query", "-q", default="", help="Free-text search")
-@click.option(
-    "--category",
-    "-c",
-    multiple=True,
-    help="Filter by category (can be used multiple times)",
-)
-@click.option("--max-cost", "-m", type=float, help="Maximum cost")
-@click.option("--location", "-l", help="Location filter")
-@click.option("--tag", "-g", multiple=True, help="Required tags")
 def search(
-    query: str,
-    category: tuple[str, ...],
-    max_cost: float | None,
-    location: str | None,
-    tag: tuple[str, ...],
+    query: str = typer.Option("", "--query", "-q", help="Free-text search"),
+    category: Optional[list[str]] = typer.Option(None, "--category", "-c", help="Filter by category (can be used multiple times)"),
+    max_cost: Optional[float] = typer.Option(None, "--max-cost", "-m", help="Maximum cost"),
+    location: Optional[str] = typer.Option(None, "--location", "-l", help="Location filter"),
+    tag: Optional[list[str]] = typer.Option(None, "--tag", "-g", help="Required tags"),
 ) -> None:
     """Search indexed activities."""
     criteria = SearchCriteria(
@@ -86,48 +81,49 @@ def search(
         categories=[ActivityCategory(c) for c in category] if category else [],
         max_cost=max_cost,
         location=location,
-        tags=list(tag),
+        tags=list(tag) if tag else [],
     )
-    results = _recommender.search(criteria)
+    results = _get_recommender().search(criteria)
     if not results:
-        click.echo("No activities found.")
+        typer.echo("No activities found.")
         return
     for a in results:
         cost_str = f"${a.cost:.2f}" if a.cost else "Free"
-        click.echo(f"{a.title} ({a.category.value}) — {cost_str}")
-        click.echo(f"  {a.description}")
-        click.echo(f"  {a.location}")
+        typer.echo(f"{a.title} ({a.category.value}) — {cost_str}")
+        typer.echo(f"  {a.description}")
+        typer.echo(f"  {a.location}")
         if a.tags:
-            click.echo(f"  tags: {', '.join(a.tags)}")
-        click.echo()
-    click.echo(f"Found {len(results)} activity/activities.")
+            typer.echo(f"  tags: {', '.join(a.tags)}")
+        typer.echo()
+    typer.echo(f"Found {len(results)} activity/activities.")
 
 
-@main.command(name="list")
+@main.command("list")
 def list_activities() -> None:
     """List all indexed activities."""
-    activities = _indexer.all()
+    activities = _get_indexer().all()
     if not activities:
-        click.echo("No activities indexed.")
+        typer.echo("No activities indexed.")
         return
     for a in activities:
         cost_str = f"${a.cost:.2f}" if a.cost else "Free"
-        click.echo(f"{a.title} ({a.category.value}) — {cost_str}")
-    click.echo(f"\nTotal: {len(activities)}")
+        typer.echo(f"{a.title} ({a.category.value}) — {cost_str}")
+    typer.echo(f"\nTotal: {len(activities)}")
 
 
 @main.command()
-@click.argument("location")
-@click.option("--precision", "-p", type=int, default=None, help="Geohash precision (auto if omitted)")
-@click.option("--radius", "-r", type=float, default=None, help="Radius in km (auto if omitted)")
-def geogrid(location: str, precision: int | None, radius: float | None) -> None:
+def geogrid(
+    location: str = typer.Argument(help="Location name"),
+    precision: Optional[int] = typer.Option(None, "--precision", "-p", help="Geohash precision (auto if omitted)"),
+    radius: Optional[float] = typer.Option(None, "--radius", "-r", help="Radius in km (auto if omitted)"),
+) -> None:
     """Generate a geohash grid for LOCATION."""
     grid = generate_geogrid(location, precision=precision, radius_km=radius)
-    click.echo(f"Location: {grid.location}")
-    click.echo(f"Center:   {grid.latitude:.4f}, {grid.longitude:.4f}")
+    typer.echo(f"Location: {grid.location}")
+    typer.echo(f"Center:   {grid.latitude:.4f}, {grid.longitude:.4f}")
     if grid.cells:
         p = grid.cells[0].precision
-        click.echo(f"Precision: {p}{' (auto)' if precision is None else ''}")
-    click.echo(f"Cells:    {len(grid.cells)}")
+        typer.echo(f"Precision: {p}{' (auto)' if precision is None else ''}")
+    typer.echo(f"Cells:    {len(grid.cells)}")
     for c in grid.cells:
-        click.echo(f"  {c.geohash}  ({c.latitude:.4f}, {c.longitude:.4f})")
+        typer.echo(f"  {c.geohash}  ({c.latitude:.4f}, {c.longitude:.4f})")

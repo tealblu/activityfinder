@@ -1,3 +1,4 @@
+from activityfinder.db import Database
 from activityfinder.indexer import Indexer
 from activityfinder.models import Activity, ActivityCategory, SearchCriteria
 from activityfinder.recommender import Recommender
@@ -5,7 +6,8 @@ from activityfinder.recommender import Recommender
 
 class TestRecommender:
     def setup_method(self) -> None:
-        self.idx = Indexer()
+        self.db = Database(":memory:")
+        self.idx = Indexer(self.db)
         self.idx.index_many(
             [
                 Activity(

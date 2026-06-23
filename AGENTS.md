@@ -6,7 +6,7 @@ Index local things to do ("activities") and recommend them based on search crite
 
 ```bash
 .venv/bin/pip install -e .
-.venv/bin/pytest          # 12 tests, all pass
+.venv/bin/pytest          # 16+ tests, all pass
 .venv/bin/activityfinder --help
 ```
 
@@ -18,9 +18,10 @@ Index local things to do ("activities") and recommend them based on search crite
 src/activityfinder/
 ├── __init__.py      # Empty package marker
 ├── __main__.py      # Enables `python -m activityfinder`
-├── cli.py           # Click CLI (4 commands: add, search, list, geogrid)
+├── cli.py           # Typer CLI (4 commands: add, search, list, geogrid; --db option)
+├── db.py            # SQLite persistence layer (activities, reviews, cells_fetched, sources)
 ├── geocells.py      # Geohash grid generation via Nominatim (httpx)
-├── indexer.py       # In-memory store: index, remove, all, clear
+├── indexer.py       # In-memory cache backed by a Database instance
 ├── models.py        # Activity, SearchCriteria dataclasses
 └── recommender.py   # Search/filter against an Indexer instance
 ```
@@ -29,7 +30,8 @@ src/activityfinder/
 - `models.py` has zero dependencies beyond stdlib.
 - `recommender.py` depends only on `indexer.py` and `models.py` — no Click dependency.
 - `geocells.py` depends on `httpx` (Nominatim geocoding API) but not on Click or other app modules.
-- Data is **in-memory per process** (no persistence yet). Each `activityfinder` CLI invocation starts fresh.
+- `db.py` depends on `models.py` and stdlib `sqlite3` / `json` — no third-party dependencies.
+- Data persists across invocations (SQLite file, default: `activityfinder.db`).
 
 ## Geocells (src/activityfinder/geocells.py)
 
@@ -42,6 +44,19 @@ Generates a geohash grid for a location via the Nominatim geocoding API (httpx).
 - **`geocode_location(location) -> (lat, lng)`** — simple lat/lng lookup
 - Contains internal geohash encode/decode/step helpers (pure Python, no external geohash library)
 - Default max grid cells: 10,000
+
+## Database (src/activityfinder/db.py)
+
+SQLite persistence layer accessed via `Database`:
+
+- **`activities`** table — geohash-indexed with lat/lng, category, tags (JSON), cost, times, and `expires_at` for cache-aware expiry
+- **`reviews`** table — linked to activities by `activity_id`, with raw text and optional rating for NLP use
+- **`cells_fetched`** table — tracks which geohash+source combinations have been crawled so APIs aren't re-hit unnecessarily
+- **`sources`** table — each source has a `refresh_cadence_seconds` so cache invalidation is source-aware rather than a single global TTL
+- **`get_stale_cells(source, max_age_seconds=None)`** — returns cells that exceed their source's refresh cadence (or a manual max age)
+- **`remove_expired()`** — deletes activities whose `expires_at` has passed (concert dates, event end times, etc.)
+- Type-aware expiry: a concert gets a hard `expires_at`, a restaurant doesn't, a hiking trail never expires (`NULL`)
+- No third-party dependencies — uses stdlib `sqlite3` and `json`
 
 ## Conventions
 
@@ -61,6 +76,7 @@ Generates a geohash grid for a location via the Nominatim geocoding API (httpx).
 - `title`, `description`, `category`, `location` (required)
 - `start_time` (defaults to now), `end_time` (optional)
 - `cost` (float, default 0.0), `tags` (list[str]), `source`, `url`
+- `expires_at` (Optional[datetime], default None) — `None` = never expires
 
 **`SearchCriteria`** dataclass:
 - `query`, `categories`, `max_cost`, `location`, `tags` — all optional
@@ -69,6 +85,7 @@ Generates a geohash grid for a location via the Nominatim geocoding API (httpx).
 
 Simple in-memory list-based store:
 - `index(activity)`, `index_many(activities)`, `remove(title) -> bool`, `all() -> list[Activity]`, `clear()`
+- Requires a `Database` instance — delegates persistence on every mutation
 
 ## Recommender (src/activityfinder/recommender.py)
 
@@ -89,6 +106,8 @@ Click group `main` with four commands:
 - `geogrid` — generate a geohash grid for a LOCATION argument (optional `--precision`, `--radius`)
 
 The `list` command is registered as `@main.command(name="list")` with function name `list_activities` to avoid shadowing the built-in.
+
+The `main` group accepts `--db` (also `ACTIVITYFINDER_DB` env var) to persist data to a SQLite file; defaults to `activityfinder.db`.
 
 ## Testing
 

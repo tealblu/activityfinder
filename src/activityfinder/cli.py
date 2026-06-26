@@ -137,12 +137,22 @@ def foursquare_search(
     radius: int = typer.Option(1000, "--radius", "-r", help="Search radius in meters", show_default=True),
     limit: int = typer.Option(10, "--limit", "-n", help="Max results (max 50)", show_default=True),
     category: Optional[list[str]] = typer.Option(None, "--category", "-c", help="Foursquare category ID filter (repeatable)"),
-    index: bool = typer.Option(False, "--index", "-i", help="Index results into local database"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Search only; do not index results"),
 ) -> None:
-    """Search Foursquare Places API and optionally index results."""
+    """Search Foursquare Places API and index results."""
     cat_str = ",".join(category) if category else None
-    with FoursquareClient() as client:
-        results = client.search_by_location(
+
+    if dry_run:
+        with FoursquareClient() as client:
+            results = client.search_by_location(
+                location=location,
+                query=query,
+                radius_m=radius,
+                limit=limit,
+                category_ids=cat_str,
+            )
+    else:
+        results = _get_indexer().foursquare_search_and_index(
             location=location,
             query=query,
             radius_m=radius,
@@ -154,8 +164,7 @@ def foursquare_search(
         typer.echo("No places found on Foursquare.")
         return
 
-    if index:
-        _get_indexer().index_many(results)
+    if not dry_run:
         typer.echo(f"Indexed {len(results)} place(s).\n")
 
     for a in results:

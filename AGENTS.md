@@ -130,9 +130,12 @@ No third-party dependencies — uses stdlib `sqlite3` and `json`.
 
 ## Indexer (src/activityfinder/indexer.py)
 
-Simple in-memory list-based store:
+Simple in-memory list-based store backed by a `Database`:
 - `index(activity)`, `index_many(activities)`, `remove(title) -> bool`, `all() -> list[Activity]`, `clear()`
+- `foursquare_search_and_index(location, query, radius_m, limit, category_ids)` — search Foursquare by geocoded location and index all results
+- `foursquare_grid_search_and_index(location, query, precision, radius_km, radius_m, limit)` — generate a geohash grid, search every cell on Foursquare (skipping cells already cached via `Database`), and index results
 - Requires a `Database` instance — delegates persistence on every mutation
+- CLI integration via `foursquare-search` command in `cli.py`
 
 ## Recommender (src/activityfinder/recommender.py)
 
@@ -151,7 +154,7 @@ Typer group `main` with five commands:
 - `search` — search by `--query`, `--category` (repeatable), `--max-cost`, `--location`, `--tag` (repeatable)
 - `list` — list all indexed activities
 - `geogrid` — generate a geohash grid for a LOCATION argument (optional `--precision`, `--radius`)
-- `foursquare-search` — search Foursquare Places API by LOCATION (optional `--query`, `--radius`, `--limit`, `--category`, `--index`)
+- `foursquare-search` — search and index Foursquare Places API by LOCATION (optional `--query`, `--radius`, `--limit`, `--category`, `--dry-run` to search without indexing)
 
 The `list` command is registered as `@main.command(name="list")` with function name `list_activities` to avoid shadowing the built-in.
 

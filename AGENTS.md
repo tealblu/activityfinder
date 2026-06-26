@@ -1,6 +1,6 @@
 # Activity Finder
 
-Index local things to do ("activities") and recommend them based on search criteria. Currently CLI-only; will expose an API + UI later.
+Index local things to do ("activities") and recommend them based on search criteria. CLI-only internal Python library.
 
 ## Quick start
 
@@ -10,7 +10,7 @@ Index local things to do ("activities") and recommend them based on search crite
 .venv/bin/activityfinder --help
 ```
 
-> **IMPORTANT: Keep this file up to date.** Whenever you add, remove, rename, or refactor a module, change a dependency, alter the CLI interface, or modify the project structure in any way, update this file to reflect it. Add new sections for new subsystems (e.g., API, database). This file is the single source of truth for project context — stale entries here mislead future agents.
+> **IMPORTANT: Keep this file up to date.** Whenever you add, remove, rename, or refactor a module, change a dependency, alter the CLI interface, or modify the project structure in any way, update this file to reflect it. Add new sections for new subsystems (e.g., database). This file is the single source of truth for project context — stale entries here mislead future agents.
 
 ## Architecture
 
@@ -27,7 +27,7 @@ src/activityfinder/
 └── recommender.py   # Search/filter against an Indexer instance
 ```
 
-- **CLI → Recommender → Indexer** — decoupled so the same recommender/indexer can be reused by an API layer later.
+- **CLI → Recommender → Indexer** — decoupled architecture.
 - `models.py` has zero dependencies beyond stdlib.
 - `recommender.py` depends only on `indexer.py` and `models.py` — no Click dependency.
 - `geocells.py` depends on `httpx` (Nominatim geocoding API) but not on Click or other app modules.

@@ -26,7 +26,6 @@ def _get_recommender() -> Recommender:
 
 
 main = typer.Typer()
-main.name = "activityfinder"
 
 
 @main.callback()

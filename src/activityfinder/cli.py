@@ -1,8 +1,13 @@
+from dotenv import load_dotenv
+
+load_dotenv()
+
 import typer
 
 from datetime import datetime
 from typing import Optional
 from activityfinder.db import Database
+from activityfinder.foursquare import FoursquareClient
 from activityfinder.geocells import generate_geogrid
 from activityfinder.indexer import Indexer
 from activityfinder.models import Activity, ActivityCategory, SearchCriteria
@@ -127,3 +132,44 @@ def geogrid(
     typer.echo(f"Cells:    {len(grid.cells)}")
     for c in grid.cells:
         typer.echo(f"  {c.geohash}  ({c.latitude:.4f}, {c.longitude:.4f})")
+
+
+@main.command(name="foursquare-search")
+def foursquare_search(
+    location: str = typer.Argument(help="Location to search around (e.g. 'San Francisco')"),
+    query: str = typer.Option("", "--query", "-q", help="Search term (e.g. 'coffee', 'museum')"),
+    radius: int = typer.Option(1000, "--radius", "-r", help="Search radius in meters", show_default=True),
+    limit: int = typer.Option(10, "--limit", "-n", help="Max results (max 50)", show_default=True),
+    category: Optional[list[str]] = typer.Option(None, "--category", "-c", help="Foursquare category ID filter (repeatable)"),
+    index: bool = typer.Option(False, "--index", "-i", help="Index results into local database"),
+) -> None:
+    """Search Foursquare Places API and optionally index results."""
+    cat_str = ",".join(category) if category else None
+    with FoursquareClient() as client:
+        results = client.search_by_location(
+            location=location,
+            query=query,
+            radius_m=radius,
+            limit=limit,
+            category_ids=cat_str,
+        )
+
+    if not results:
+        typer.echo("No places found on Foursquare.")
+        return
+
+    if index:
+        _get_indexer().index_many(results)
+        typer.echo(f"Indexed {len(results)} place(s).\n")
+
+    for a in results:
+        cost_str = f"${a.cost:.2f}" if a.cost else "Free"
+        typer.echo(f"{a.title} ({a.category.value}) — {cost_str}")
+        typer.echo(f"  {a.description}")
+        typer.echo(f"  {a.location}")
+        if a.tags:
+            typer.echo(f"  tags: {', '.join(a.tags)}")
+        if a.url:
+            typer.echo(f"  {a.url}")
+        typer.echo()
+    typer.echo(f"Found {len(results)} place(s).")

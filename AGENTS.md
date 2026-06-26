@@ -6,7 +6,7 @@ Index local things to do ("activities") and recommend them based on search crite
 
 ```bash
 .venv/bin/pip install -e .
-.venv/bin/pytest          # 39 tests, all pass
+.venv/bin/pytest          # 84 tests, all pass
 .venv/bin/activityfinder --help
 ```
 
@@ -18,8 +18,9 @@ Index local things to do ("activities") and recommend them based on search crite
 src/activityfinder/
 ├── __init__.py      # Empty package marker
 ├── __main__.py      # Enables `python -m activityfinder`
-├── cli.py           # Typer CLI (4 commands: add, search, list, geogrid; --db option)
+├── cli.py           # Typer CLI (5 commands: add, search, list, geogrid, foursquare-search; --db option)
 ├── db.py            # SQLite persistence layer (activities, reviews, cells_fetched, sources)
+├── foursquare.py    # Foursquare Places API v3 client (httpx)
 ├── geocells.py      # Geohash grid generation via Nominatim (httpx)
 ├── indexer.py       # In-memory cache backed by a Database instance
 ├── models.py        # Activity, SearchCriteria dataclasses
@@ -31,7 +32,25 @@ src/activityfinder/
 - `recommender.py` depends only on `indexer.py` and `models.py` — no Click dependency.
 - `geocells.py` depends on `httpx` (Nominatim geocoding API) but not on Click or other app modules.
 - `db.py` depends on `models.py` and stdlib `sqlite3` / `json` — no third-party dependencies.
+- `cli.py` uses `python-dotenv` (`load_dotenv()`) to auto-load `.env` from the project root — both `FOURSQUARE_API_KEY` and `ACTIVITYFINDER_DB` can be set via `.env`.
 - Data persists across invocations (SQLite file, default: `activityfinder.db`).
+
+## Foursquare (src/activityfinder/foursquare.py)
+
+Foursquare Places API client using `httpx`. Targets the new `places-api.foursquare.com` endpoint (migrated from `api.foursquare.com/v3/places`).
+
+- **`FoursquareClient`** — main class; configured via `FOURSQUARE_API_KEY` env var (or passed directly). Context-manager compatible.
+- **`FoursquareError`** / **`FoursquareAPIError`** — custom exceptions (401, 429 handled specifically)
+- Uses `Authorization: Bearer <key>` auth with `X-Places-Api-Version: 2025-06-17` header
+- Requests field-restricted responses via `FOURSQUARE_DEFAULT_FIELDS`
+- **`search_places(ll, near, radius, query, fsq_category_ids, limit)`** — raw API call returning dict results
+- **`search_by_location(location, query, radius_m, limit, category_ids)`** — geocode a location string then search
+- **`search_by_coords(latitude, longitude, query, radius_m, limit, category_ids, location_name)`** — search by raw coordinates
+- **`search_cell(cell, query, radius_m, limit)`** — search a single `Geocell`
+- **`search_grid(grid, query, limit, radius_m, db)`** — iterate all cells in a `Geogrid`, skip already-fetched cells when a `Database` is provided
+- **`get_place(fsq_place_id)`**, **`get_place_photos(fsq_place_id)`**, **`get_place_tips(fsq_place_id)`** — detail endpoints (uses `fsq_place_id` instead of legacy `fsq_id`)
+- Maps Foursquare top-level category IDs → `ActivityCategory` via `FOURSQUARE_CATEGORY_MAP` (reads `fsq_category_id` field with `id` fallback for legacy responses)
+- CLI integration via `foursquare-search` command in `cli.py`
 
 ## Geocells (src/activityfinder/geocells.py)
 
@@ -126,12 +145,13 @@ Filter-based search; applies each non-empty criterion as a narrowing filter:
 
 ## CLI (src/activityfinder/cli.py)
 
-Typer group `main` with four commands:
+Typer group `main` with five commands:
 
 - `add` — index an activity (requires `--title`, `--description`, `--location`; optional `--category`, `--cost`, `--tags`, `--source`, `--url`, `--start-time`)
 - `search` — search by `--query`, `--category` (repeatable), `--max-cost`, `--location`, `--tag` (repeatable)
 - `list` — list all indexed activities
 - `geogrid` — generate a geohash grid for a LOCATION argument (optional `--precision`, `--radius`)
+- `foursquare-search` — search Foursquare Places API by LOCATION (optional `--query`, `--radius`, `--limit`, `--category`, `--index`)
 
 The `list` command is registered as `@main.command(name="list")` with function name `list_activities` to avoid shadowing the built-in.
 

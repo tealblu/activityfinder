@@ -1,9 +1,5 @@
 from dotenv import load_dotenv
-
-load_dotenv()
-
 import typer
-
 from datetime import datetime
 from typing import Optional
 from activityfinder.db import Database
@@ -13,6 +9,7 @@ from activityfinder.indexer import Indexer
 from activityfinder.models import Activity, ActivityCategory, SearchCriteria
 from activityfinder.recommender import Recommender
 
+load_dotenv()
 
 _indexer: Indexer | None = None
 _recommender: Recommender | None = None

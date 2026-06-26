@@ -121,7 +121,7 @@ class FoursquareClient:
         radius_m: int = FOURSQUARE_DEFAULT_RADIUS_M,
         limit: int = FOURSQUARE_DEFAULT_LIMIT,
         category_ids: Optional[str] = None,
-    ) -> list[Activity]:
+    ) -> list[tuple[Activity, list[dict[str, Any]]]]:
         lat, lng = geocode_location(location)
         return self.search_by_coords(
             lat, lng, query=query, radius_m=radius_m,
@@ -138,13 +138,18 @@ class FoursquareClient:
         limit: int = FOURSQUARE_DEFAULT_LIMIT,
         category_ids: Optional[str] = None,
         location_name: str = "",
-    ) -> list[Activity]:
+    ) -> list[tuple[Activity, list[dict[str, Any]]]]:
         ll_str = f"{latitude},{longitude}"
         places = self.search_places(
             ll=ll_str, radius=radius_m, query=query,
             fsq_category_ids=category_ids, limit=limit,
         )
-        return [self._place_to_activity(p, location_name) for p in places]
+        results: list[tuple[Activity, list[dict[str, Any]]]] = []
+        for p in places:
+            activity, fsq_place_id = self._place_to_activity(p, location_name)
+            tips = self.get_place_tips(fsq_place_id) if fsq_place_id else []
+            results.append((activity, tips))
+        return results
 
     def search_cell(
         self,
@@ -152,7 +157,7 @@ class FoursquareClient:
         query: str = "",
         radius_m: int = FOURSQUARE_DEFAULT_RADIUS_M,
         limit: int = FOURSQUARE_DEFAULT_LIMIT,
-    ) -> list[Activity]:
+    ) -> list[tuple[Activity, list[dict[str, Any]]]]:
         return self.search_by_coords(
             cell.latitude, cell.longitude,
             query=query, radius_m=radius_m, limit=limit,
@@ -165,8 +170,8 @@ class FoursquareClient:
         limit: int = FOURSQUARE_DEFAULT_LIMIT,
         radius_m: Optional[int] = None,
         db: Optional[Any] = None,
-    ) -> list[Activity]:
-        results: list[Activity] = []
+    ) -> list[tuple[Activity, list[dict[str, Any]]]]:
+        results: list[tuple[Activity, list[dict[str, Any]]]] = []
         source_name = "foursquare"
 
         for cell in grid.cells:
@@ -241,7 +246,7 @@ class FoursquareClient:
         self,
         place: dict[str, Any],
         location_name: str = "",
-    ) -> Activity:
+    ) -> tuple[Activity, str]:
         name = place.get("name", "Unknown")
         categories = place.get("categories", [])
         cat_names = [c.get("name", "") for c in categories]
@@ -255,15 +260,18 @@ class FoursquareClient:
         if not url and fsq_place_id:
             url = f"https://foursquare.com/v/{fsq_place_id}"
 
-        return Activity(
-            title=name,
-            description=desc,
-            category=self._map_category(categories),
-            location=address,
-            cost=0.0,
-            tags=self._build_tags(categories),
-            source="foursquare",
-            url=url,
+        return (
+            Activity(
+                title=name,
+                description=desc,
+                category=self._map_category(categories),
+                location=address,
+                cost=0.0,
+                tags=self._build_tags(categories),
+                source="foursquare",
+                url=url,
+            ),
+            fsq_place_id,
         )
 
     # ------------------------------------------------------------------

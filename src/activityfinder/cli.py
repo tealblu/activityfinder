@@ -144,21 +144,23 @@ def foursquare_search(
 
     if dry_run:
         with FoursquareClient() as client:
-            results = client.search_by_location(
+            raw_results = client.search_by_location(
                 location=location,
                 query=query,
                 radius_m=radius,
                 limit=limit,
                 category_ids=cat_str,
             )
+        results = [activity for activity, _ in raw_results]
     else:
-        results = _get_indexer().foursquare_search_and_index(
+        raw_results = _get_indexer().foursquare_search_and_index(
             location=location,
             query=query,
             radius_m=radius,
             limit=limit,
             category_ids=cat_str,
         )
+        results = [activity for activity, _ in raw_results]
 
     if not results:
         typer.echo("No places found on Foursquare.")

@@ -44,12 +44,14 @@ Foursquare Places API client using `httpx`. Targets the new `places-api.foursqua
 - Uses `Authorization: Bearer <key>` auth with `X-Places-Api-Version: 2025-06-17` header
 - Requests field-restricted responses via `FOURSQUARE_DEFAULT_FIELDS`
 - **`search_places(ll, near, radius, query, fsq_category_ids, limit)`** — raw API call returning dict results
-- **`search_by_location(location, query, radius_m, limit, category_ids)`** — geocode a location string then search
-- **`search_by_coords(latitude, longitude, query, radius_m, limit, category_ids, location_name)`** — search by raw coordinates
-- **`search_cell(cell, query, radius_m, limit)`** — search a single `Geocell`
+- **`search_by_location(location, query, radius_m, limit, category_ids)`** — geocode a location string then search, returns `list[tuple[Activity, list[dict]]]` (activity + its tips)
+- **`search_by_coords(latitude, longitude, query, radius_m, limit, category_ids, location_name)`** — search by raw coordinates, also fetches tips for each place
+- **`search_cell(cell, query, radius_m, limit)`** — search a single `Geocell`, returns `list[tuple[Activity, list[dict]]]`
 - **`search_grid(grid, query, limit, radius_m, db)`** — iterate all cells in a `Geogrid`, skip already-fetched cells when a `Database` is provided
 - **`get_place(fsq_place_id)`**, **`get_place_photos(fsq_place_id)`**, **`get_place_tips(fsq_place_id)`** — detail endpoints (uses `fsq_place_id` instead of legacy `fsq_id`)
 - Maps Foursquare top-level category IDs → `ActivityCategory` via `FOURSQUARE_CATEGORY_MAP` (reads `fsq_category_id` field with `id` fallback for legacy responses)
+- `_place_to_activity` returns `tuple[Activity, str]` (activity + fsq_place_id)
+- Tips are automatically fetched per place during `search_by_coords` and stored as reviews when indexed via the `Indexer`
 - CLI integration via `foursquare-search` command in `cli.py`
 
 ## Geocells (src/activityfinder/geocells.py)
@@ -131,10 +133,11 @@ No third-party dependencies — uses stdlib `sqlite3` and `json`.
 ## Indexer (src/activityfinder/indexer.py)
 
 Simple in-memory list-based store backed by a `Database`:
-- `index(activity)`, `index_many(activities)`, `remove(title) -> bool`, `all() -> list[Activity]`, `clear()`
-- `foursquare_search_and_index(location, query, radius_m, limit, category_ids)` — search Foursquare by geocoded location and index all results
-- `foursquare_grid_search_and_index(location, query, precision, radius_km, radius_m, limit)` — generate a geohash grid, search every cell on Foursquare (skipping cells already cached via `Database`), and index results
+- `index(activity, tips=None)`, `index_many(activities)`, `remove(title) -> bool`, `all() -> list[Activity]`, `clear()`
+- `foursquare_search_and_index(location, query, radius_m, limit, category_ids)` — search Foursquare by geocoded location and index all results; stores tips as reviews via `_store_tips`
+- `foursquare_grid_search_and_index(location, query, precision, radius_km, radius_m, limit)` — generate a geohash grid, search every cell on Foursquare (skipping cells already cached via `Database`), and index results with tips as reviews
 - Requires a `Database` instance — delegates persistence on every mutation
+- Both foursquare methods return `list[tuple[Activity, list[dict]]]` (activity + its Foursquare tips)
 - CLI integration via `foursquare-search` command in `cli.py`
 
 ## Recommender (src/activityfinder/recommender.py)

@@ -1,3 +1,4 @@
+from typing import Any
 from unittest.mock import MagicMock, patch
 
 import httpx
@@ -12,6 +13,14 @@ from activityfinder.foursquare import (
 )
 from activityfinder.geocells import Geocell, Geogrid
 from activityfinder.models import Activity, ActivityCategory
+
+
+def _mock_tips_response() -> MagicMock:
+    return MagicMock(status_code=200, json=lambda: [])
+
+
+def _mock_search_response(results: list[dict[str, Any]]) -> MagicMock:
+    return MagicMock(status_code=200, json=lambda: {"results": results})
 
 
 SAMPLE_PLACE = {
@@ -179,30 +188,36 @@ class TestFoursquareClientSearch:
     @patch("activityfinder.foursquare.geocode_location")
     def test_search_by_location(self, mock_geocode) -> None:
         mock_geocode.return_value = (45.5, -122.6)
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
-        activities = self.client.search_by_location("Portland, OR", query="coffee")
-        assert len(activities) == 1
-        assert isinstance(activities[0], Activity)
-        assert activities[0].title == "Test Place"
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),  # tips for the one place
+        ]
+        results = self.client.search_by_location("Portland, OR", query="coffee")
+        assert len(results) == 1
+        activity, tips = results[0]
+        assert isinstance(activity, Activity)
+        assert activity.title == "Test Place"
+        assert tips == []
         mock_geocode.assert_called_once_with("Portland, OR")
 
     def test_search_by_coords(self) -> None:
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
-        activities = self.client.search_by_coords(45.5, -122.6, location_name="Portland")
-        assert len(activities) == 1
-        assert activities[0].location == "123 Main St, Portland, OR"
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+        ]
+        results = self.client.search_by_coords(45.5, -122.6, location_name="Portland")
+        assert len(results) == 1
+        activity, _ = results[0]
+        assert activity.location == "123 Main St, Portland, OR"
 
     def test_search_cell(self) -> None:
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+        ]
         cell = Geocell(geohash="abc", latitude=45.5, longitude=-122.6, precision=8)
-        activities = self.client.search_cell(cell, query="food")
-        assert len(activities) == 1
+        results = self.client.search_cell(cell, query="food")
+        assert len(results) == 1
 
 
 class TestFoursquareClientSearchGrid:
@@ -223,29 +238,42 @@ class TestFoursquareClientSearchGrid:
         )
 
     def test_searches_all_cells(self) -> None:
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+        ]
         results = self.client.search_grid(self.grid, query="pizza")
         assert len(results) == 3
-        assert self.mock_httpx.get.call_count == 3
+        assert self.mock_httpx.get.call_count == 6
 
     def test_skips_fetched_cells_when_db_provided(self) -> None:
         mock_db = MagicMock()
         mock_db.is_cell_fetched.side_effect = lambda gh, src: gh == "a1"
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+        ]
         results = self.client.search_grid(self.grid, query="pizza", db=mock_db)
         assert len(results) == 2
-        assert self.mock_httpx.get.call_count == 2
+        assert self.mock_httpx.get.call_count == 4
 
     def test_marks_cells_fetched(self) -> None:
         mock_db = MagicMock()
         mock_db.is_cell_fetched.return_value = False
-        self.mock_httpx.get.return_value = MagicMock(
-            status_code=200, json=lambda: {"results": [SAMPLE_PLACE]}
-        )
+        self.mock_httpx.get.side_effect = [
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+            _mock_search_response([SAMPLE_PLACE]),
+            _mock_tips_response(),
+        ]
         self.client.search_grid(self.grid, query="pizza", db=mock_db)
         assert mock_db.mark_cell_fetched.call_count == 3
         mock_db.mark_cell_fetched.assert_any_call("a1", "foursquare")
@@ -368,7 +396,7 @@ class TestPlaceToActivity:
         )
 
     def test_converts_full_place(self) -> None:
-        activity = self.client._place_to_activity(SAMPLE_PLACE, "Portland")
+        activity, fsq_id = self.client._place_to_activity(SAMPLE_PLACE, "Portland")
         assert activity.title == "Test Place"
         assert activity.description == "Restaurant"
         assert activity.category == ActivityCategory.FOOD
@@ -377,31 +405,36 @@ class TestPlaceToActivity:
         assert activity.tags == ["restaurant"]
         assert activity.source == "foursquare"
         assert activity.url == "https://example.com/test-place"
+        assert fsq_id == "abc123"
 
     def test_converts_place_without_formatted_address(self) -> None:
-        activity = self.client._place_to_activity(SAMPLE_PLACE_NO_FORMATTED, "Seattle")
+        activity, fsq_id = self.client._place_to_activity(SAMPLE_PLACE_NO_FORMATTED, "Seattle")
         assert activity.title == "No Format"
         assert activity.category == ActivityCategory.OUTDOORS
         assert activity.location == "456 Oak Ave, Seattle, WA"
+        assert fsq_id == "def456"
 
     def test_converts_minimal_place(self) -> None:
-        activity = self.client._place_to_activity(SAMPLE_PLACE_MINIMAL)
+        activity, fsq_id = self.client._place_to_activity(SAMPLE_PLACE_MINIMAL)
         assert activity.title == "Minimal"
         assert activity.description == "Minimal"
         assert activity.category == ActivityCategory.OTHER
         assert activity.location == ""
         assert activity.tags == []
         assert activity.url == ""
+        assert fsq_id == ""
 
     def test_generates_url_from_fsq_place_id(self) -> None:
         place = dict(SAMPLE_PLACE_MINIMAL, fsq_place_id="my-id")
-        activity = self.client._place_to_activity(place)
+        activity, fsq_id = self.client._place_to_activity(place)
         assert activity.url == "https://foursquare.com/v/my-id"
+        assert fsq_id == "my-id"
 
     def test_prefers_website_over_generated_url(self) -> None:
         place = dict(SAMPLE_PLACE_MINIMAL, fsq_place_id="my-id", website="https://mine.example.com")
-        activity = self.client._place_to_activity(place)
+        activity, fsq_id = self.client._place_to_activity(place)
         assert activity.url == "https://mine.example.com"
+        assert fsq_id == "my-id"
 
     def test_description_from_categories(self) -> None:
         place = {
@@ -409,10 +442,10 @@ class TestPlaceToActivity:
             "categories": [{"fsq_category_id": "13000", "name": "Pizza Place"}],
             "location": {},
         }
-        activity = self.client._place_to_activity(place)
+        activity, _ = self.client._place_to_activity(place)
         assert activity.description == "Pizza Place"
 
     def test_falls_back_to_name_for_description(self) -> None:
         place = {"name": "Nameless Cafe", "categories": [], "location": {}}
-        activity = self.client._place_to_activity(place)
+        activity, _ = self.client._place_to_activity(place)
         assert activity.description == "Nameless Cafe"
